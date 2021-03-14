@@ -1,50 +1,32 @@
-#%%
-from flask import Flask, render_template
-from flask_pymongo import PyMongo
-import Mission_to_Mars
+# Import Splinter, BeautifulSoup, and Pandas
+from splinter import Browser
+from bs4 import BeautifulSoup as soup
 import pandas as pd
 import datetime as dt
-from webdriver_manager.chrome import ChromeDriverManager
-# %%
-app = Flask(__name__)
-# %%
-# Use flask_pymongo to set up mongo connection to python
-# URI = URL (Similar)
-# Mongo data base set up
-# Before this make sure to create the instance in the console
-app.config["MONGO_URI"] = "mongodb://localhost:27017/mars_app"
-mongo = PyMongo(app)
-# %%
-# Setting up home page route:
-@app.route('/')
-def index():
-    # this will make PyMongo find 'mars' collection in our database
-    mars = mongo.db.mars.find_one()
-    # The return in this line of code will return an HTML template using an index.html file
-    # mars=mars tells Python to use the mars collection in MongoDB
-    # Return statement tells python that the function is over
-    return render_template("index.html", mars=mars)
 
-# The function above is what links our visual representation of our work, our web app, to the code that powers it
-# %%
-# Setting up the scraping route
-@app.route("/scrape")
-def scrape():
-   # This variable will point to the mongo database
-   mars = mongo.db.mars
-   # This variable will hold the scraped data, scrape all exported from jupyter notebook
-   mars_data = scraping.scrape_all()
-   #updating the data base
-   # we are updating data so we need an empty json that will take the place of the data we scraped -> .update(query_parameter, data, options)
-   # true makes mongo create a new file if one does not exist
-   mars.update({}, mars_data, upsert=True)
-   # redirect when finishing scrpaing data
-   return redirect('/', code=302)
-# %%
-if __name__ == "__main__":
-    app.run()
-# %%
-# The browser argument tells python we will use the browser variable
+
+
+def scrape_all():
+    # Initiate headless driver for deployment
+    executable_path = {'executable_path': 'chromedriver.exe'}
+    browser = Browser('chrome', **executable_path, headless=True)
+
+    news_title, news_paragraph = mars_news(browser)
+
+    # Run all scraping functions and store results in a dictionary
+    data = {
+        "news_title": news_title,
+        "news_paragraph": news_paragraph,
+        "featured_image": featured_image(browser),
+        "facts": mars_facts(),
+        "last_modified": dt.datetime.now()
+    }
+
+    # Stop webdriver and return data
+    browser.quit()
+    return data
+
+
 def mars_news(browser):
 
     # Scrape Mars News
@@ -72,46 +54,83 @@ def mars_news(browser):
 
     return news_title, news_p
 
-def mars_facts():
+
+def featured_image(browser):
+    # Visit URL
+    url = 'https://data-class-jpl-space.s3.amazonaws.com/JPL_Space/index.html'
+    browser.visit(url)
+
+    # Find and click the full image button
+    full_image_elem = browser.find_by_tag('button')[1]
+    full_image_elem.click()
+
+    # Parse the resulting html with soup
+    html = browser.html
+    img_soup = soup(html, 'html.parser')
+
+    # Add try/except for error handling
     try:
-        # Using the read_html pandas function to scrape the facts table into a dataframe
-        df = pd.read_html('ttps://data-class-mars-facts.s3.amazonaws.com/Mars_Facts/index.html')[0]
-    # BaseExpectation is used becauase we are using the read_html function and it won't handle any user defined expectations.
-    # BaseExpectation will help us avoid the AttributeErrors that comes from importing a table into a df
+        # Find the relative image url
+        img_url_rel = img_soup.find('img', class_='fancybox-image').get('src')
+
+    except AttributeError:
+        return None
+
+    # Use the base url to create an absolute url
+    img_url = f'https://data-class-jpl-space.s3.amazonaws.com/JPL_Space/{img_url_rel}'
+
+    return img_url
+
+def mars_facts():
+    # Add try/except for error handling
+    try:
+        # Use 'read_html' to scrape the facts table into a dataframe
+        df = pd.read_html('https://data-class-mars-facts.s3.amazonaws.com/Mars_Facts/index.html')[0]
+
     except BaseException:
-        return
+        return None
 
     # Assign columns and set index of dataframe
-    df.columns = ['Description', 'Mars', 'Earth']
+    df.columns=['Description', 'Mars', 'Earth']
     df.set_index('Description', inplace=True)
 
-    return df.to_html()
+    # Convert dataframe into HTML format, add bootstrap
+    return df.to_html(classes="table table-striped")
 
-# The following function will initialize the browser
-# It will create a data dictionary
-# end the webdriver and return the scaped data
-def scrape_all():
-    # Initiate headless driver for deploymnet
-    executable_path = {'executable_path': ChromeDriverManager().install()}
+# Scraping mars hemisphere data
+def hemisphere_image(browser):
 
-    # 2 browsers, one is the variable the other is the parameter
-    # headless = False will make the scraping visible to us, if set on true you'll get the result immidiately
-    browser = Browser('chrome', **executable_path, headless=True)
+    url = 'https://astrogeology.usgs.gov/search/results?q=hemisphere+enhanced&k1=target&v1=Mars'
+    browser.visit(url)
+    # Create a list to hold the images and titles.
+    hemisphere_image_urls = []
 
-    # Setting up news_title and news_paragraph variables to hold the data that will be scraped
-    news_title, news_paragraph = mars_news(browser)
+    # 3. Write code to retrieve the image urls and titles for each hemisphere.
+    html = browser.html
+    html_soup = soup(html, 'html.parser')
+    hemi_elements = html_soup.find_all('div', class_='description')
 
-    # Run all scraping functions and store results in dictionary
-    # This dict will run all of the function created and it stores all of the results
-data = {
-      "news_title": news_title,
-      "news_paragraph": news_paragraph,
-      "featured_image": featured_image(browser),
-      "facts": mars_facts(),
-      "last_modified": dt.datetime.now()
-}
+    for element in hemi_elements:
+        # Create an empty dictionary
+        hemisphere = {}
 
+        # Navigate to the full-resolution image
+        image_ref_link = element.find('a', class_='itemLink product-item')
+        image_link = f"https://astrogeology.usgs.gov{image_ref_link.get('href')}"
+        browser.visit(image_link)
+
+        # Retrieve the full-resolution image url and title
+        full_image_url = browser.links.find_by_text('Sample')['href']
+        title = browser.find_by_tag('h2').text
+
+        # Add the url and title to the dictionary
+        hemisphere = {'img_url': full_image_url, 'title' : title}
+        hemisphere_image_urls.append(hemisphere)
+
+    # Return the dictionary that holds each image url
+    return hemisphere_image_urls
 
 if __name__ == "__main__":
+
     # If running as script, print scraped data
     print(scrape_all())
