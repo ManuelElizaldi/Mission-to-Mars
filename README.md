@@ -6,4 +6,4 @@ In this project we developed a web scraping script using Python to automate a we
 Results from the index.html file after clicking the Scrape button:
 
 
-<img src="results.png" alt="drawing" width="200"/>
+<img src="resources/results.png" alt="results" width="200"/>
