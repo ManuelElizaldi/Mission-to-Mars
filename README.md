@@ -4,4 +4,4 @@ In this project we developed a web scraping script using Python to automate a we
 
 ## Results
 Results from the index.html file after clicking the Scrape button:
-![](resources/results.png =250x)
+![](resources/results.png=250x)
